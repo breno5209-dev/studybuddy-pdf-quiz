@@ -223,7 +223,20 @@ function QuizPage() {
             <div className="text-xs text-muted-foreground mb-2">
               Questão {question.number}
             </div>
-            <p className="text-base leading-relaxed">{question.statement}</p>
+            <p className="text-base leading-relaxed whitespace-pre-wrap">{question.statement}</p>
+            {question.images && question.images.length > 0 && (
+              <div className="mt-4 space-y-3">
+                {question.images.map((img, idx) => (
+                  <img
+                    key={idx}
+                    src={img.dataUrl}
+                    alt={`Imagem da questão ${question.number}`}
+                    className="rounded-md border border-border max-w-full h-auto bg-white"
+                    loading="lazy"
+                  />
+                ))}
+              </div>
+            )}
           </div>
 
           <div className="space-y-2">
