@@ -37,50 +37,65 @@ export async function extractPdf(file: File): Promise<ExtractedPdf> {
     const spans: TextSpan[] = [];
     let pageText = "";
     for (const it of content.items as any[]) {
-      if (!("str" in it)) continue;
-      const tr = it.transform as number[];
-      const pt = pdfjsLib.Util.applyTransform(
-        [tr[4], tr[5]],
-        viewport.transform,
-      ) as unknown as number[];
-      const x = pt[0];
-      const y = pt[1];
-      const height = Math.abs(tr[3]) * RENDER_SCALE;
+      if (!it || !("str" in it)) continue;
+      const tr = it.transform as number[] | undefined;
+      if (!tr || tr.length < 6) {
+        pageText += (it.str ?? "") + (it.hasEOL ? "\n" : " ");
+        continue;
+      }
+      let x = 0;
+      let y = 0;
+      try {
+        const [vx, vy] = (viewport as any).convertToViewportPoint(tr[4], tr[5]);
+        x = vx;
+        y = vy;
+      } catch {
+        x = tr[4] * RENDER_SCALE;
+        y = (viewport.height ?? 0) - tr[5] * RENDER_SCALE;
+      }
+      const height = Math.abs(tr[3] ?? 12) * RENDER_SCALE;
       spans.push({ str: it.str, x, y: y - height, height });
       pageText += it.str;
       pageText += it.hasEOL ? "\n" : " ";
     }
     fullText += "\n" + pageText + "\n";
 
-    // Image regions via operator list
-    const opList = await page.getOperatorList();
-    const OPS = pdfjsLib.OPS;
+    // Image regions via operator list (best-effort; pdfjs API may vary by version)
     const imageRegions: ImageRegion[] = [];
-    const stack: number[][] = [];
-    let ctm: number[] = viewport.transform.slice();
-    for (let k = 0; k < opList.fnArray.length; k++) {
-      const fn = opList.fnArray[k];
-      const args = opList.argsArray[k];
-      if (fn === OPS.save) stack.push(ctm.slice());
-      else if (fn === OPS.restore) ctm = stack.pop() ?? ctm;
-      else if (fn === OPS.transform) {
-        ctm = pdfjsLib.Util.transform(ctm, args as number[]);
-      } else if (
-        fn === OPS.paintImageXObject ||
-        fn === OPS.paintInlineImageXObject ||
-        fn === OPS.paintImageMaskXObject
-      ) {
-        const corners = [
-          pdfjsLib.Util.applyTransform([0, 0], ctm) as unknown as number[],
-          pdfjsLib.Util.applyTransform([1, 0], ctm) as unknown as number[],
-          pdfjsLib.Util.applyTransform([0, 1], ctm) as unknown as number[],
-          pdfjsLib.Util.applyTransform([1, 1], ctm) as unknown as number[],
-        ];
-        const ys = corners.map((c) => c[1]);
-        const top = Math.min(...ys);
-        const bottom = Math.max(...ys);
-        if (bottom - top > 8) imageRegions.push({ top, bottom });
+    try {
+      const opList = await page.getOperatorList();
+      const OPS = (pdfjsLib as any).OPS;
+      const Util = (pdfjsLib as any).Util;
+      if (opList && OPS && Util) {
+        const stack: number[][] = [];
+        let ctm: number[] = (viewport.transform as number[]).slice();
+        for (let k = 0; k < opList.fnArray.length; k++) {
+          const fn = opList.fnArray[k];
+          const args = opList.argsArray[k];
+          if (fn === OPS.save) stack.push(ctm.slice());
+          else if (fn === OPS.restore) ctm = stack.pop() ?? ctm;
+          else if (fn === OPS.transform) {
+            ctm = Util.transform(ctm, args as number[]);
+          } else if (
+            fn === OPS.paintImageXObject ||
+            fn === OPS.paintInlineImageXObject ||
+            fn === OPS.paintImageMaskXObject
+          ) {
+            const corners = [
+              Util.applyTransform([0, 0], ctm) as number[],
+              Util.applyTransform([1, 0], ctm) as number[],
+              Util.applyTransform([0, 1], ctm) as number[],
+              Util.applyTransform([1, 1], ctm) as number[],
+            ];
+            const ys = corners.map((c) => c[1]);
+            const top = Math.min(...ys);
+            const bottom = Math.max(...ys);
+            if (bottom - top > 8) imageRegions.push({ top, bottom });
+          }
+        }
       }
+    } catch (e) {
+      console.warn("operator list parse failed", e);
     }
 
     // Render page to canvas (kept in-memory for cropping later)
@@ -90,7 +105,11 @@ export async function extractPdf(file: File): Promise<ExtractedPdf> {
     const ctx = canvas.getContext("2d")!;
     ctx.fillStyle = "#ffffff";
     ctx.fillRect(0, 0, canvas.width, canvas.height);
-    await page.render({ canvasContext: ctx, viewport, canvas }).promise;
+    try {
+      await (page as any).render({ canvasContext: ctx, viewport, canvas }).promise;
+    } catch {
+      await (page as any).render({ canvasContext: ctx, viewport }).promise;
+    }
 
     pages.push({
       pageNum: i,
