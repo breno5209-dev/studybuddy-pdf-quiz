@@ -12,7 +12,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { extractTextFromPdf, parseQuestionsAndKey } from "@/lib/pdf-parser";
+import { extractPdf, parseQuestions } from "@/lib/pdf-parser";
 import { useStore } from "@/lib/store";
 import { toast } from "sonner";
 import { Upload, FileText, Loader2, Plus } from "lucide-react";
@@ -45,8 +45,8 @@ function UploadPage() {
     if (!file || !name) return;
     setLoading(true);
     try {
-      const text = await extractTextFromPdf(file);
-      const questions = parseQuestionsAndKey(text);
+      const extracted = await extractPdf(file);
+      const questions = parseQuestions(extracted);
       if (questions.length === 0) {
         toast.error("Nenhuma questão detectada", {
           description:
