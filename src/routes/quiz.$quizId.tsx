@@ -5,6 +5,15 @@ import { useStore, type Question } from "@/lib/store";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
 import { Progress } from "@/components/ui/progress";
 import {
   ChevronLeft,
@@ -19,11 +28,15 @@ import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/quiz/$quizId")({
   head: () => ({ meta: [{ title: "Quiz — MedQuiz" }] }),
+  validateSearch: (search: Record<string, unknown>) => ({
+    source: typeof search.source === "string" ? search.source : undefined,
+  }),
   component: QuizPage,
 });
 
 function QuizPage() {
   const { quizId } = Route.useParams();
+  const { source } = Route.useSearch();
   const navigate = useNavigate();
   const quizzes = useStore((s) => s.quizzes);
   const responses = useStore((s) => s.responses);
@@ -36,28 +49,41 @@ function QuizPage() {
 
   // Build "custom error quiz" virtually
   const customQuiz = useMemo(() => {
-    if (quizId !== "custom") return null;
-    const wrongResponses = responses.filter((r) => !r.correct);
+    if (quizId !== "custom" && quizId !== "errors") return null;
+    const filtered =
+      quizId === "errors" && source
+        ? responses.filter((r) => !r.correct && r.quizId === source)
+        : responses.filter((r) => !r.correct);
     const seen = new Set<string>();
     const wrongQuestions: Question[] = [];
-    for (const r of wrongResponses) {
+    const pool =
+      quizId === "errors" && source
+        ? quizzes.find((q) => q.id === source)?.questions ?? []
+        : quizzes.flatMap((qz) => qz.questions);
+    for (const r of filtered) {
       if (seen.has(r.questionId)) continue;
       seen.add(r.questionId);
-      const q = quizzes
-        .flatMap((qz) => qz.questions)
-        .find((qq) => qq.id === r.questionId);
+      const q = pool.find((qq) => qq.id === r.questionId);
       if (q) wrongQuestions.push(q);
     }
+    const sourceQuiz =
+      quizId === "errors" && source
+        ? quizzes.find((q) => q.id === source)
+        : null;
     return {
-      id: "custom",
-      name: "Quiz dos meus erros",
-      groupId: null,
+      id: quizId,
+      name:
+        sourceQuiz != null
+          ? `Erros — ${sourceQuiz.name}`
+          : "Quiz dos meus erros",
+      groupId: sourceQuiz?.groupId ?? null,
       createdAt: 0,
       questions: wrongQuestions,
     };
-  }, [quizId, quizzes, responses]);
+  }, [quizId, source, quizzes, responses]);
 
   const quiz = customQuiz ?? quizzes.find((q) => q.id === quizId);
+  const isVirtual = quizId === "custom" || quizId === "errors";
 
   const [currentIdx, setCurrentIdx] = useState(() => {
     const saved = progress[quizId];
@@ -66,7 +92,7 @@ function QuizPage() {
   const [selected, setSelected] = useState<string | null>(null);
   const [revealed, setRevealed] = useState(false);
   const [showResume, setShowResume] = useState(() => {
-    return quizId !== "custom" && progress[quizId] != null && progress[quizId] > 0;
+    return !isVirtual && progress[quizId] != null && progress[quizId] > 0;
   });
 
   if (!quiz) {
@@ -108,14 +134,14 @@ function QuizPage() {
     if (!selected) return;
     const correct = selected === question.correctAnswer;
     recordResponse({
-      quizId: quiz.id === "custom" ? "custom" : quiz.id,
+      quizId: isVirtual ? quiz.id : quiz.id,
       questionId: question.id,
       selected,
       correct,
       groupId: quiz.groupId,
     });
     setRevealed(true);
-    if (quiz.id !== "custom") setProgress(quiz.id, currentIdx);
+    if (!isVirtual) setProgress(quiz.id, currentIdx);
   };
 
   const goNext = () => {
@@ -137,7 +163,7 @@ function QuizPage() {
   };
 
   const startOver = () => {
-    if (quiz.id !== "custom") resetProgress(quiz.id);
+    if (!isVirtual) resetProgress(quiz.id);
     setCurrentIdx(0);
     setSelected(null);
     setRevealed(false);
@@ -254,19 +280,88 @@ function QuizPage() {
           </div>
         </Card>
 
-        <Card className="p-5">
-          <div className="flex items-center gap-2 mb-2">
-            <StickyNote className="w-4 h-4 text-muted-foreground" />
-            <span className="text-sm font-medium">Anotações sobre esta questão</span>
-          </div>
-          <Textarea
-            value={note}
-            onChange={(e) => setNote(question.id, e.target.value)}
-            placeholder="Escreva suas observações, mnemônicos, links de revisão..."
-            rows={3}
-          />
-        </Card>
+        <NoteCard
+          questionNumber={question.number}
+          value={note}
+          onSave={(t) => setNote(question.id, t)}
+        />
       </div>
     </AppShell>
+  );
+}
+
+function NoteCard({
+  questionNumber,
+  value,
+  onSave,
+}: {
+  questionNumber: number;
+  value: string;
+  onSave: (t: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [draft, setDraft] = useState(value);
+  // sync when question changes
+  useEffect(() => {
+    setDraft(value);
+  }, [value]);
+
+  return (
+    <Card className="p-5 flex items-center justify-between gap-3 flex-wrap">
+      <div className="flex items-center gap-2 min-w-0">
+        <StickyNote className="w-4 h-4 text-muted-foreground shrink-0" />
+        <div className="min-w-0">
+          <div className="text-sm font-medium">
+            {value ? "Anotação salva" : "Sem anotação"} para a Questão {questionNumber}
+          </div>
+          {value && (
+            <div className="text-xs text-muted-foreground truncate max-w-md">
+              {value}
+            </div>
+          )}
+        </div>
+      </div>
+      <div className="flex items-center gap-2">
+        <Link to="/notes" className="text-xs text-primary hover:underline">
+          Ver todas
+        </Link>
+        <Dialog open={open} onOpenChange={setOpen}>
+          <DialogTrigger asChild>
+            <Button size="sm" variant={value ? "outline" : "default"}>
+              <StickyNote className="w-4 h-4 mr-1" />
+              {value ? "Editar anotação" : "Criar anotação"}
+            </Button>
+          </DialogTrigger>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Anotação — Questão {questionNumber}</DialogTitle>
+              <DialogDescription>
+                Salve mnemônicos, observações e links de revisão.
+              </DialogDescription>
+            </DialogHeader>
+            <Textarea
+              autoFocus
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              rows={8}
+              placeholder="Escreva sua anotação..."
+            />
+            <DialogFooter>
+              <Button variant="ghost" onClick={() => setOpen(false)}>
+                Cancelar
+              </Button>
+              <Button
+                onClick={() => {
+                  onSave(draft);
+                  setOpen(false);
+                }}
+              >
+                Salvar
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      </div>
+    </Card>
   );
 }

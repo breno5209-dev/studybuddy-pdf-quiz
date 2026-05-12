@@ -86,14 +86,15 @@ function Dashboard() {
                     ? ((lastIdx ?? -1) + 1) / q.questions.length
                     : 0;
                   const group = groups.find((g) => g.id === q.groupId);
+                  const wrongInQuiz = responses.filter(
+                    (r) => r.quizId === q.id && !r.correct,
+                  ).length;
                   return (
-                    <Link
+                    <div
                       key={q.id}
-                      to="/quiz/$quizId"
-                      params={{ quizId: q.id }}
                       className="block p-4 rounded-lg border border-border hover:border-primary/50 hover:shadow-sm transition-all"
                     >
-                      <div className="flex items-center justify-between gap-4">
+                      <div className="flex items-center justify-between gap-4 flex-wrap">
                         <div className="min-w-0 flex-1">
                           <div className="flex items-center gap-2 mb-1">
                             {group && (
@@ -113,11 +114,27 @@ function Dashboard() {
                             </span>
                           </div>
                         </div>
-                        <Button size="sm" variant={lastIdx != null ? "default" : "outline"}>
-                          {lastIdx != null ? "Continuar" : "Iniciar"}
-                        </Button>
+                        <div className="flex gap-2">
+                          {wrongInQuiz > 0 && (
+                            <Link
+                              to="/quiz/$quizId"
+                              params={{ quizId: "errors" }}
+                              search={{ source: q.id }}
+                            >
+                              <Button size="sm" variant="outline">
+                                <RefreshCw className="w-3.5 h-3.5 mr-1" />
+                                Erros ({wrongInQuiz})
+                              </Button>
+                            </Link>
+                          )}
+                          <Link to="/quiz/$quizId" params={{ quizId: q.id }}>
+                            <Button size="sm" variant={lastIdx != null ? "default" : "outline"}>
+                              {lastIdx != null ? "Continuar" : "Iniciar"}
+                            </Button>
+                          </Link>
+                        </div>
                       </div>
-                    </Link>
+                    </div>
                   );
                 })}
               </div>

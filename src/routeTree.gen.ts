@@ -12,6 +12,7 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as UploadRouteImport } from './routes/upload'
 import { Route as StatsRouteImport } from './routes/stats'
 import { Route as RemindersRouteImport } from './routes/reminders'
+import { Route as NotesRouteImport } from './routes/notes'
 import { Route as HistoryRouteImport } from './routes/history'
 import { Route as GroupsRouteImport } from './routes/groups'
 import { Route as IndexRouteImport } from './routes/index'
@@ -30,6 +31,11 @@ const StatsRoute = StatsRouteImport.update({
 const RemindersRoute = RemindersRouteImport.update({
   id: '/reminders',
   path: '/reminders',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const NotesRoute = NotesRouteImport.update({
+  id: '/notes',
+  path: '/notes',
   getParentRoute: () => rootRouteImport,
 } as any)
 const HistoryRoute = HistoryRouteImport.update({
@@ -57,6 +63,7 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/groups': typeof GroupsRoute
   '/history': typeof HistoryRoute
+  '/notes': typeof NotesRoute
   '/reminders': typeof RemindersRoute
   '/stats': typeof StatsRoute
   '/upload': typeof UploadRoute
@@ -66,6 +73,7 @@ export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/groups': typeof GroupsRoute
   '/history': typeof HistoryRoute
+  '/notes': typeof NotesRoute
   '/reminders': typeof RemindersRoute
   '/stats': typeof StatsRoute
   '/upload': typeof UploadRoute
@@ -76,6 +84,7 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/groups': typeof GroupsRoute
   '/history': typeof HistoryRoute
+  '/notes': typeof NotesRoute
   '/reminders': typeof RemindersRoute
   '/stats': typeof StatsRoute
   '/upload': typeof UploadRoute
@@ -87,6 +96,7 @@ export interface FileRouteTypes {
     | '/'
     | '/groups'
     | '/history'
+    | '/notes'
     | '/reminders'
     | '/stats'
     | '/upload'
@@ -96,6 +106,7 @@ export interface FileRouteTypes {
     | '/'
     | '/groups'
     | '/history'
+    | '/notes'
     | '/reminders'
     | '/stats'
     | '/upload'
@@ -105,6 +116,7 @@ export interface FileRouteTypes {
     | '/'
     | '/groups'
     | '/history'
+    | '/notes'
     | '/reminders'
     | '/stats'
     | '/upload'
@@ -115,6 +127,7 @@ export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   GroupsRoute: typeof GroupsRoute
   HistoryRoute: typeof HistoryRoute
+  NotesRoute: typeof NotesRoute
   RemindersRoute: typeof RemindersRoute
   StatsRoute: typeof StatsRoute
   UploadRoute: typeof UploadRoute
@@ -142,6 +155,13 @@ declare module '@tanstack/react-router' {
       path: '/reminders'
       fullPath: '/reminders'
       preLoaderRoute: typeof RemindersRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/notes': {
+      id: '/notes'
+      path: '/notes'
+      fullPath: '/notes'
+      preLoaderRoute: typeof NotesRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/history': {
@@ -179,6 +199,7 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   GroupsRoute: GroupsRoute,
   HistoryRoute: HistoryRoute,
+  NotesRoute: NotesRoute,
   RemindersRoute: RemindersRoute,
   StatsRoute: StatsRoute,
   UploadRoute: UploadRoute,
