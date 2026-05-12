@@ -230,28 +230,142 @@ function findImagesForQuestion(
     const bottom =
       nextPos && page.pageNum === nextPos.pageNum ? nextPos.y : page.height;
 
-    // Merge nearby image regions in [top, bottom]
-    const inRange = page.imageRegions
-      .filter((r) => Math.min(r.bottom, bottom) - Math.max(r.top, top) > 10)
-      .map((r) => ({
-        top: Math.max(top, r.top - 4),
-        bottom: Math.min(bottom, r.bottom + 4),
-      }))
-      .sort((a, b) => a.top - b.top);
-
-    const merged: ImageRegion[] = [];
-    for (const r of inRange) {
-      const last = merged[merged.length - 1];
-      if (last && r.top - last.bottom < 20) last.bottom = Math.max(last.bottom, r.bottom);
-      else merged.push({ ...r });
-    }
-
-    for (const r of merged) {
-      const cropped = cropFromCanvas(page, r.top, r.bottom);
+    const bands = detectImageBandsByPixels(page, top, bottom);
+    for (const b of bands) {
+      const cropped = cropBand(page, b.top, b.bottom, b.left, b.right);
       if (cropped) results.push(cropped);
     }
   }
   return results;
+}
+
+type Band = { top: number; bottom: number; left: number; right: number };
+
+function detectImageBandsByPixels(
+  page: PageInfo,
+  top: number,
+  bottom: number,
+): Band[] {
+  const t = Math.max(0, Math.floor(top));
+  const b = Math.min(page.height, Math.ceil(bottom));
+  if (b - t < 20) return [];
+
+  // Build a row mask of text coverage from spans
+  const textRow = new Uint8Array(page.height);
+  for (const s of page.spans) {
+    const y0 = Math.max(0, Math.floor(s.y - 1));
+    const y1 = Math.min(page.height, Math.ceil(s.y + s.height + 1));
+    for (let y = y0; y < y1; y++) textRow[y] = 1;
+  }
+
+  // Read canvas pixels for the region
+  let img: ImageData;
+  try {
+    const ctx = page.canvas.getContext("2d")!;
+    img = ctx.getImageData(0, t, page.width, b - t);
+  } catch {
+    return [];
+  }
+  const W = page.width;
+  const H = b - t;
+  const data = img.data;
+
+  // Per-row non-white pixel count (excluding text rows)
+  const rowDark = new Float32Array(H);
+  const WHITE_THRESH = 240; // pixels darker than this count as content
+  for (let y = 0; y < H; y++) {
+    if (textRow[t + y]) continue; // skip text rows entirely
+    let count = 0;
+    const rowStart = y * W * 4;
+    for (let x = 0; x < W; x++) {
+      const i = rowStart + x * 4;
+      const r = data[i], g = data[i + 1], bl = data[i + 2];
+      const lum = (r + g + bl) / 3;
+      if (lum < WHITE_THRESH) count++;
+    }
+    rowDark[y] = count;
+  }
+
+  // Threshold: a row is "image" if at least 4% of width has dark pixels
+  const minRowPx = Math.max(8, Math.floor(W * 0.04));
+  const isImg = new Uint8Array(H);
+  for (let y = 0; y < H; y++) isImg[y] = rowDark[y] >= minRowPx ? 1 : 0;
+
+  // Group consecutive image rows into bands (allow small gaps up to 12px)
+  const bands: Band[] = [];
+  let y = 0;
+  while (y < H) {
+    if (!isImg[y]) { y++; continue; }
+    let start = y;
+    let end = y;
+    while (y < H) {
+      if (isImg[y]) { end = y; y++; }
+      else {
+        // peek for gap
+        let gap = 0;
+        let j = y;
+        while (j < H && !isImg[j] && gap < 12) { gap++; j++; }
+        if (j < H && isImg[j]) { y = j; }
+        else break;
+      }
+    }
+    const bandH = end - start + 1;
+    if (bandH >= 30) {
+      // compute left/right bounds across the band
+      let left = W, right = 0;
+      for (let yy = start; yy <= end; yy += 2) {
+        const rowStart = yy * W * 4;
+        for (let x = 0; x < W; x++) {
+          const i = rowStart + x * 4;
+          const lum = (data[i] + data[i + 1] + data[i + 2]) / 3;
+          if (lum < WHITE_THRESH) {
+            if (x < left) left = x;
+            if (x > right) right = x;
+          }
+        }
+      }
+      if (right > left + 30) {
+        const pad = 6;
+        bands.push({
+          top: t + Math.max(0, start - pad),
+          bottom: t + Math.min(H - 1, end + pad),
+          left: Math.max(0, left - pad),
+          right: Math.min(W - 1, right + pad),
+        });
+      }
+    }
+  }
+  return bands;
+}
+
+function cropBand(
+  page: PageInfo,
+  top: number,
+  bottom: number,
+  left: number,
+  right: number,
+): QuestionImage | null {
+  const w = Math.ceil(right - left);
+  const h = Math.ceil(bottom - top);
+  if (w < 30 || h < 20) return null;
+  const out = document.createElement("canvas");
+  out.width = w;
+  out.height = h;
+  const ctx = out.getContext("2d")!;
+  ctx.fillStyle = "#ffffff";
+  ctx.fillRect(0, 0, w, h);
+  ctx.drawImage(
+    page.canvas,
+    Math.max(0, Math.floor(left)),
+    Math.max(0, Math.floor(top)),
+    w,
+    h,
+    0,
+    0,
+    w,
+    h,
+  );
+  return { dataUrl: out.toDataURL("image/jpeg", 0.82), width: w, height: h };
 }
 
 function locateHeader(
