@@ -122,7 +122,7 @@ function GroupsPage() {
                         key={q.id}
                         quiz={q}
                         groups={groups}
-                        onAssign={(gid) => assign(q.id, gid)}
+                        onAssign={(gid: string | null) => assign(q.id, gid)}
                         onRemove={() => removeQuiz(q.id)}
                       />
                     ))}
@@ -147,7 +147,7 @@ function GroupsPage() {
                     key={q.id}
                     quiz={q}
                     groups={groups}
-                    onAssign={(gid) => assign(q.id, gid)}
+                    onAssign={(gid: string | null) => assign(q.id, gid)}
                     onRemove={() => removeQuiz(q.id)}
                   />
                 ))}
