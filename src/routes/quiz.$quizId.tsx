@@ -19,11 +19,15 @@ import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/quiz/$quizId")({
   head: () => ({ meta: [{ title: "Quiz — MedQuiz" }] }),
+  validateSearch: (search: Record<string, unknown>) => ({
+    source: typeof search.source === "string" ? search.source : undefined,
+  }),
   component: QuizPage,
 });
 
 function QuizPage() {
   const { quizId } = Route.useParams();
+  const { source } = Route.useSearch();
   const navigate = useNavigate();
   const quizzes = useStore((s) => s.quizzes);
   const responses = useStore((s) => s.responses);
