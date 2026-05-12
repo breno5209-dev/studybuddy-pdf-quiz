@@ -271,19 +271,88 @@ function QuizPage() {
           </div>
         </Card>
 
-        <Card className="p-5">
-          <div className="flex items-center gap-2 mb-2">
-            <StickyNote className="w-4 h-4 text-muted-foreground" />
-            <span className="text-sm font-medium">Anotações sobre esta questão</span>
-          </div>
-          <Textarea
-            value={note}
-            onChange={(e) => setNote(question.id, e.target.value)}
-            placeholder="Escreva suas observações, mnemônicos, links de revisão..."
-            rows={3}
-          />
-        </Card>
+        <NoteCard
+          questionNumber={question.number}
+          value={note}
+          onSave={(t) => setNote(question.id, t)}
+        />
       </div>
     </AppShell>
+  );
+}
+
+function NoteCard({
+  questionNumber,
+  value,
+  onSave,
+}: {
+  questionNumber: number;
+  value: string;
+  onSave: (t: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [draft, setDraft] = useState(value);
+  // sync when question changes
+  useEffect(() => {
+    setDraft(value);
+  }, [value]);
+
+  return (
+    <Card className="p-5 flex items-center justify-between gap-3 flex-wrap">
+      <div className="flex items-center gap-2 min-w-0">
+        <StickyNote className="w-4 h-4 text-muted-foreground shrink-0" />
+        <div className="min-w-0">
+          <div className="text-sm font-medium">
+            {value ? "Anotação salva" : "Sem anotação"} para a Questão {questionNumber}
+          </div>
+          {value && (
+            <div className="text-xs text-muted-foreground truncate max-w-md">
+              {value}
+            </div>
+          )}
+        </div>
+      </div>
+      <div className="flex items-center gap-2">
+        <Link to="/notes" className="text-xs text-primary hover:underline">
+          Ver todas
+        </Link>
+        <Dialog open={open} onOpenChange={setOpen}>
+          <DialogTrigger asChild>
+            <Button size="sm" variant={value ? "outline" : "default"}>
+              <StickyNote className="w-4 h-4 mr-1" />
+              {value ? "Editar anotação" : "Criar anotação"}
+            </Button>
+          </DialogTrigger>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Anotação — Questão {questionNumber}</DialogTitle>
+              <DialogDescription>
+                Salve mnemônicos, observações e links de revisão.
+              </DialogDescription>
+            </DialogHeader>
+            <Textarea
+              autoFocus
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              rows={8}
+              placeholder="Escreva sua anotação..."
+            />
+            <DialogFooter>
+              <Button variant="ghost" onClick={() => setOpen(false)}>
+                Cancelar
+              </Button>
+              <Button
+                onClick={() => {
+                  onSave(draft);
+                  setOpen(false);
+                }}
+              >
+                Salvar
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      </div>
+    </Card>
   );
 }
