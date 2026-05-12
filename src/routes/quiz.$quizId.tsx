@@ -40,26 +40,38 @@ function QuizPage() {
 
   // Build "custom error quiz" virtually
   const customQuiz = useMemo(() => {
-    if (quizId !== "custom") return null;
-    const wrongResponses = responses.filter((r) => !r.correct);
+    if (quizId !== "custom" && quizId !== "errors") return null;
+    const filtered =
+      quizId === "errors" && source
+        ? responses.filter((r) => !r.correct && r.quizId === source)
+        : responses.filter((r) => !r.correct);
     const seen = new Set<string>();
     const wrongQuestions: Question[] = [];
-    for (const r of wrongResponses) {
+    const pool =
+      quizId === "errors" && source
+        ? quizzes.find((q) => q.id === source)?.questions ?? []
+        : quizzes.flatMap((qz) => qz.questions);
+    for (const r of filtered) {
       if (seen.has(r.questionId)) continue;
       seen.add(r.questionId);
-      const q = quizzes
-        .flatMap((qz) => qz.questions)
-        .find((qq) => qq.id === r.questionId);
+      const q = pool.find((qq) => qq.id === r.questionId);
       if (q) wrongQuestions.push(q);
     }
+    const sourceQuiz =
+      quizId === "errors" && source
+        ? quizzes.find((q) => q.id === source)
+        : null;
     return {
-      id: "custom",
-      name: "Quiz dos meus erros",
-      groupId: null,
+      id: quizId,
+      name:
+        sourceQuiz != null
+          ? `Erros — ${sourceQuiz.name}`
+          : "Quiz dos meus erros",
+      groupId: sourceQuiz?.groupId ?? null,
       createdAt: 0,
       questions: wrongQuestions,
     };
-  }, [quizId, quizzes, responses]);
+  }, [quizId, source, quizzes, responses]);
 
   const quiz = customQuiz ?? quizzes.find((q) => q.id === quizId);
 
