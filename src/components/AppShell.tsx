@@ -6,6 +6,7 @@ import {
   History,
   BarChart3,
   Bell,
+  StickyNote,
   Moon,
   Sun,
   Stethoscope,
@@ -19,6 +20,7 @@ const navItems = [
   { to: "/groups", label: "Áreas", icon: FolderTree },
   { to: "/history", label: "Histórico", icon: History },
   { to: "/stats", label: "Desempenho", icon: BarChart3 },
+  { to: "/notes", label: "Anotações", icon: StickyNote },
   { to: "/reminders", label: "Lembretes", icon: Bell },
 ];
 
