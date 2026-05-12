@@ -1,36 +1,27 @@
 import * as pdfjsLib from "pdfjs-dist";
 import workerSrc from "pdfjs-dist/build/pdf.worker.min.mjs?url";
-import type { Question } from "./store";
+import type { Question, QuestionImage } from "./store";
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = workerSrc;
 
 const uid = () => Math.random().toString(36).slice(2, 10);
 
-type TextSpan = {
-  str: string;
-  // viewport coords (CSS pixels at scale 1.5)
-  x: number;
-  y: number; // top of glyph
-  height: number;
-};
+type TextSpan = { str: string; x: number; y: number; height: number };
+type ImageRegion = { top: number; bottom: number };
 
 type PageInfo = {
   pageNum: number;
   width: number;
   height: number;
-  imageDataUrl: string; // full page rendered (jpeg)
+  canvas: HTMLCanvasElement;
   spans: TextSpan[];
-  imageRegions: { top: number; bottom: number }[]; // viewport coords
+  imageRegions: ImageRegion[];
 };
 
-export type ExtractedPdf = {
-  text: string;
-  pages: PageInfo[];
-};
+export type ExtractedPdf = { text: string; pages: PageInfo[] };
 
 const RENDER_SCALE = 1.4;
 
-/** Extract text + render pages + locate embedded images. */
 export async function extractPdf(file: File): Promise<ExtractedPdf> {
   const buf = await file.arrayBuffer();
   const pdf = await pdfjsLib.getDocument({ data: buf }).promise;
@@ -41,36 +32,30 @@ export async function extractPdf(file: File): Promise<ExtractedPdf> {
     const page = await pdf.getPage(i);
     const viewport = page.getViewport({ scale: RENDER_SCALE });
 
-    // 1. Text content with positions
+    // Text spans with viewport positions
     const content = await page.getTextContent();
     const spans: TextSpan[] = [];
     let pageText = "";
     for (const it of content.items as any[]) {
       if (!("str" in it)) continue;
-      // item.transform = [a,b,c,d,e,f]; baseline at (e,f) in PDF space
       const tr = it.transform as number[];
-      const [x, y] = pdfjsLib.Util.transform(viewport.transform, [
-        tr[4],
-        tr[5],
-      ]) as [number, number];
+      const pt = pdfjsLib.Util.applyTransform(
+        [tr[4], tr[5]],
+        viewport.transform,
+      ) as unknown as number[];
+      const x = pt[0];
+      const y = pt[1];
       const height = Math.abs(tr[3]) * RENDER_SCALE;
-      spans.push({
-        str: it.str,
-        x,
-        y: y - height, // top
-        height,
-      });
+      spans.push({ str: it.str, x, y: y - height, height });
       pageText += it.str;
-      if (it.hasEOL) pageText += "\n";
-      else pageText += " ";
+      pageText += it.hasEOL ? "\n" : " ";
     }
     fullText += "\n" + pageText + "\n";
 
-    // 2. Find embedded image regions via operator list
+    // Image regions via operator list
     const opList = await page.getOperatorList();
     const OPS = pdfjsLib.OPS;
-    const imageRegions: { top: number; bottom: number }[] = [];
-    // Track current transform stack
+    const imageRegions: ImageRegion[] = [];
     const stack: number[][] = [];
     let ctm: number[] = viewport.transform.slice();
     for (let k = 0; k < opList.fnArray.length; k++) {
@@ -83,15 +68,13 @@ export async function extractPdf(file: File): Promise<ExtractedPdf> {
       } else if (
         fn === OPS.paintImageXObject ||
         fn === OPS.paintInlineImageXObject ||
-        fn === OPS.paintImageMaskXObject ||
-        fn === OPS.paintJpegXObject
+        fn === OPS.paintImageMaskXObject
       ) {
-        // Image drawn from (0,0) to (1,1) in its own space, transformed by ctm
         const corners = [
-          pdfjsLib.Util.applyTransform([0, 0], ctm),
-          pdfjsLib.Util.applyTransform([1, 0], ctm),
-          pdfjsLib.Util.applyTransform([0, 1], ctm),
-          pdfjsLib.Util.applyTransform([1, 1], ctm),
+          pdfjsLib.Util.applyTransform([0, 0], ctm) as unknown as number[],
+          pdfjsLib.Util.applyTransform([1, 0], ctm) as unknown as number[],
+          pdfjsLib.Util.applyTransform([0, 1], ctm) as unknown as number[],
+          pdfjsLib.Util.applyTransform([1, 1], ctm) as unknown as number[],
         ];
         const ys = corners.map((c) => c[1]);
         const top = Math.min(...ys);
@@ -100,22 +83,20 @@ export async function extractPdf(file: File): Promise<ExtractedPdf> {
       }
     }
 
-    // 3. Render page to canvas → JPEG dataURL
+    // Render page to canvas (kept in-memory for cropping later)
     const canvas = document.createElement("canvas");
     canvas.width = viewport.width;
     canvas.height = viewport.height;
     const ctx = canvas.getContext("2d")!;
-    // White background to avoid transparent areas as black on jpeg
     ctx.fillStyle = "#ffffff";
     ctx.fillRect(0, 0, canvas.width, canvas.height);
     await page.render({ canvasContext: ctx, viewport, canvas }).promise;
-    const imageDataUrl = canvas.toDataURL("image/jpeg", 0.78);
 
     pages.push({
       pageNum: i,
       width: viewport.width,
       height: viewport.height,
-      imageDataUrl,
+      canvas,
       spans,
       imageRegions,
     });
@@ -126,24 +107,15 @@ export async function extractPdf(file: File): Promise<ExtractedPdf> {
 
 const NOISE_RE =
   /^(?:\s*\d[\d\s]*|.*medicina livre.*|.*livremedicina.*|.*t\.me\/.*|@\S+)\s*$/i;
-
 const isNoise = (l: string) => !l.trim() || NOISE_RE.test(l);
 
-/**
- * Parse questions from extracted PDF (text + pages with positions/images).
- * Each question may include cropped image data when it contains an embedded
- * image inside its vertical range on the page.
- */
 export function parseQuestions(extracted: ExtractedPdf): Question[] {
   const rawText = extracted.text;
-
-  // 1. Separate answer key from body
   const keyHeader = /(?:Gabarito|Respostas|Answer\s*Key)\s*:?/i;
   const keyMatch = rawText.match(keyHeader);
   const body = keyMatch ? rawText.slice(0, keyMatch.index) : rawText;
   const keyRaw = keyMatch ? rawText.slice(keyMatch.index! + keyMatch[0].length) : "";
 
-  // 2. Parse answer key
   const answerMap: Record<number, string> = {};
   const keyRegex = /(\d{1,3})\s*[\)\-\.\:]?\s+([A-Ea-e])(?![A-Za-z])/g;
   let m: RegExpExecArray | null;
@@ -152,23 +124,17 @@ export function parseQuestions(extracted: ExtractedPdf): Question[] {
     if (!answerMap[n]) answerMap[n] = m[2].toUpperCase();
   }
 
-  // 3. Find question starts in body text
   const qStarts: { num: number; idx: number; headerLen: number }[] = [];
   const qRe =
     /(?:^|\n|\s)(?:Quest[ãa]o\s+0*(\d{1,3})|0*(\d{1,3})\s*[\)\.\-]\s+)/gi;
   while ((m = qRe.exec(body)) !== null) {
     const num = parseInt(m[1] ?? m[2], 10);
     if (!num) continue;
-    qStarts.push({
-      num,
-      idx: m.index + m[0].length,
-      headerLen: m[0].length,
-    });
+    qStarts.push({ num, idx: m.index + m[0].length, headerLen: m[0].length });
   }
   if (qStarts.length === 0) return [];
 
   const questions: Question[] = [];
-
   for (let i = 0; i < qStarts.length; i++) {
     const start = qStarts[i].idx;
     const end =
@@ -176,7 +142,6 @@ export function parseQuestions(extracted: ExtractedPdf): Question[] {
         ? qStarts[i + 1].idx - qStarts[i + 1].headerLen
         : body.length;
     const chunk = body.slice(start, end);
-
     const lines = chunk.split(/\r?\n/);
     const opts: { letter: string; text: string }[] = [];
     const statementLines: string[] = [];
@@ -210,13 +175,12 @@ export function parseQuestions(extracted: ExtractedPdf): Question[] {
     const statement = statementLines.join(" ").replace(/\s+/g, " ").trim();
     const num = qStarts[i].num;
     const correct = answerMap[num];
-
     if (cleanOpts.length < 2) continue;
     if (statement.length < 5) continue;
     if (!correct) continue;
 
-    // 4. Try to associate images by locating the question header on a page
-    const images = findImagesForQuestion(extracted, num, i + 1 < qStarts.length ? qStarts[i + 1].num : null);
+    const nextNum = i + 1 < qStarts.length ? qStarts[i + 1].num : null;
+    const images = findImagesForQuestion(extracted, num, nextNum);
 
     questions.push({
       id: uid(),
@@ -227,47 +191,45 @@ export function parseQuestions(extracted: ExtractedPdf): Question[] {
       images: images.length > 0 ? images : undefined,
     });
   }
-
   return questions;
 }
 
-/**
- * For a given question number, locate it on the rendered pages by searching
- * spans for a header like "Questão N" or "N.", then return cropped images
- * for any image regions falling between this question and the next.
- */
 function findImagesForQuestion(
   extracted: ExtractedPdf,
   num: number,
   nextNum: number | null,
-): { dataUrl: string; ratio: number }[] {
-  // Find page + y for header of question `num` and `nextNum`
+): QuestionImage[] {
   const headerPos = locateHeader(extracted, num);
   if (!headerPos) return [];
   const nextPos = nextNum != null ? locateHeader(extracted, nextNum) : null;
-
-  const results: { dataUrl: string; ratio: number }[] = [];
+  const results: QuestionImage[] = [];
 
   for (const page of extracted.pages) {
     if (page.pageNum < headerPos.pageNum) continue;
     if (nextPos && page.pageNum > nextPos.pageNum) continue;
-
-    const top =
-      page.pageNum === headerPos.pageNum ? headerPos.y : 0;
+    const top = page.pageNum === headerPos.pageNum ? headerPos.y : 0;
     const bottom =
       nextPos && page.pageNum === nextPos.pageNum ? nextPos.y : page.height;
 
-    for (const region of page.imageRegions) {
-      const overlap =
-        Math.min(region.bottom, bottom) - Math.max(region.top, top);
-      if (overlap > 10) {
-        const cropped = cropImage(
-          page,
-          Math.max(0, region.top - 4),
-          Math.min(page.height, region.bottom + 4),
-        );
-        if (cropped) results.push(cropped);
-      }
+    // Merge nearby image regions in [top, bottom]
+    const inRange = page.imageRegions
+      .filter((r) => Math.min(r.bottom, bottom) - Math.max(r.top, top) > 10)
+      .map((r) => ({
+        top: Math.max(top, r.top - 4),
+        bottom: Math.min(bottom, r.bottom + 4),
+      }))
+      .sort((a, b) => a.top - b.top);
+
+    const merged: ImageRegion[] = [];
+    for (const r of inRange) {
+      const last = merged[merged.length - 1];
+      if (last && r.top - last.bottom < 20) last.bottom = Math.max(last.bottom, r.bottom);
+      else merged.push({ ...r });
+    }
+
+    for (const r of merged) {
+      const cropped = cropFromCanvas(page, r.top, r.bottom);
+      if (cropped) results.push(cropped);
     }
   }
   return results;
@@ -286,17 +248,13 @@ function locateHeader(
     `${num})`,
   ];
   for (const page of extracted.pages) {
-    // Build a flat lower-cased running string of spans with their y positions
     for (let i = 0; i < page.spans.length; i++) {
       const s = page.spans[i].str.toLowerCase().trim();
       if (!s) continue;
-      // Try multi-span concat for "Questão" + " " + number
-      const combo = (s + " " + (page.spans[i + 1]?.str ?? "")).toLowerCase().trim();
-      if (
-        targets.some(
-          (t) => s === t || s.startsWith(t) || combo.startsWith(t),
-        )
-      ) {
+      const combo = (s + " " + (page.spans[i + 1]?.str ?? ""))
+        .toLowerCase()
+        .trim();
+      if (targets.some((t) => s === t || s.startsWith(t) || combo.startsWith(t))) {
         return { pageNum: page.pageNum, y: page.spans[i].y };
       }
     }
@@ -304,35 +262,31 @@ function locateHeader(
   return null;
 }
 
-function cropImage(
+function cropFromCanvas(
   page: PageInfo,
   top: number,
   bottom: number,
-): { dataUrl: string; ratio: number } | null {
-  const h = bottom - top;
+): QuestionImage | null {
+  const h = Math.ceil(bottom - top);
   if (h < 12) return null;
-  const img = new Image();
-  img.src = page.imageDataUrl;
-  // The image is already loaded as data URL — but synchronously drawing requires
-  // it to be decoded. Use createImageBitmap fallback via a hidden canvas approach:
-  // We'll use drawImage on a fresh image element by waiting in caller? Not async here.
-  // Simpler: re-render via a temporary canvas using the original canvas data URL.
-  const canvas = document.createElement("canvas");
-  canvas.width = page.width;
-  canvas.height = Math.ceil(h);
-  const ctx = canvas.getContext("2d")!;
-  // Draw from cached HTMLImageElement loaded synchronously won't work.
-  // We use a workaround: the extracted data URL is already a JPEG; we decode
-  // it via an Image and then crop. Since this function is sync, we instead
-  // store enough info to crop later. Refactor: do cropping during extraction
-  // (see cropImageSync below) — we cannot here.
-  // Fallback: return the full-page data URL with a CSS hint via ratio so the
-  // UI can show the relevant slice using object-position. We encode the crop
-  // window in the dataUrl wrapper using a pseudo-protocol.
-  return {
-    dataUrl: `crop:${page.imageDataUrl}#t=${Math.round(top)},h=${Math.round(
-      h,
-    )},W=${page.width},H=${page.height}`,
-    ratio: page.width / h,
-  };
+  // Find left/right via examining non-white pixels could be heavy; just use full width
+  const out = document.createElement("canvas");
+  out.width = page.width;
+  out.height = h;
+  const ctx = out.getContext("2d")!;
+  ctx.fillStyle = "#ffffff";
+  ctx.fillRect(0, 0, out.width, out.height);
+  ctx.drawImage(
+    page.canvas,
+    0,
+    Math.max(0, Math.floor(top)),
+    page.width,
+    h,
+    0,
+    0,
+    page.width,
+    h,
+  );
+  const dataUrl = out.toDataURL("image/jpeg", 0.78);
+  return { dataUrl, width: page.width, height: h };
 }
