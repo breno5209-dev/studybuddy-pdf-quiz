@@ -1,6 +1,5 @@
 import * as pdfjsLib from "pdfjs-dist";
 // Use the bundled worker
-// @ts-expect-error - vite worker import
 import workerSrc from "pdfjs-dist/build/pdf.worker.min.mjs?url";
 import type { Question } from "./store";
 
