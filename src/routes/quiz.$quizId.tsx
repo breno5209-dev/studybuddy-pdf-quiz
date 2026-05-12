@@ -74,6 +74,7 @@ function QuizPage() {
   }, [quizId, source, quizzes, responses]);
 
   const quiz = customQuiz ?? quizzes.find((q) => q.id === quizId);
+  const isVirtual = quizId === "custom" || quizId === "errors";
 
   const [currentIdx, setCurrentIdx] = useState(() => {
     const saved = progress[quizId];
@@ -82,7 +83,7 @@ function QuizPage() {
   const [selected, setSelected] = useState<string | null>(null);
   const [revealed, setRevealed] = useState(false);
   const [showResume, setShowResume] = useState(() => {
-    return quizId !== "custom" && progress[quizId] != null && progress[quizId] > 0;
+    return !isVirtual && progress[quizId] != null && progress[quizId] > 0;
   });
 
   if (!quiz) {
@@ -124,14 +125,14 @@ function QuizPage() {
     if (!selected) return;
     const correct = selected === question.correctAnswer;
     recordResponse({
-      quizId: quiz.id === "custom" ? "custom" : quiz.id,
+      quizId: isVirtual ? quiz.id : quiz.id,
       questionId: question.id,
       selected,
       correct,
       groupId: quiz.groupId,
     });
     setRevealed(true);
-    if (quiz.id !== "custom") setProgress(quiz.id, currentIdx);
+    if (!isVirtual) setProgress(quiz.id, currentIdx);
   };
 
   const goNext = () => {
@@ -153,7 +154,7 @@ function QuizPage() {
   };
 
   const startOver = () => {
-    if (quiz.id !== "custom") resetProgress(quiz.id);
+    if (!isVirtual) resetProgress(quiz.id);
     setCurrentIdx(0);
     setSelected(null);
     setRevealed(false);
