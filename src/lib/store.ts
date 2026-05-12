@@ -1,12 +1,19 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 
+export type QuestionImage = {
+  dataUrl: string;
+  width: number;
+  height: number;
+};
+
 export type Question = {
   id: string;
   number: number;
   statement: string;
   options: { letter: string; text: string }[];
   correctAnswer: string; // letter
+  images?: QuestionImage[];
 };
 
 export type Quiz = {
