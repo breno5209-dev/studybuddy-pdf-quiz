@@ -135,11 +135,15 @@ function stripInlineNoise(s: string): string {
   out = out.replace(/livremedicina/gi, " ");
   out = out.replace(/venda\s*proibida/gi, " ");
   // Footnote on last alternative: "Essa questão possui comentário no site ..."
-  // Handles spaced/garbled variants like "po ssui", "co me ntário", trailing digits.
+  // PDF extraction often inserts spaces inside words ("po ssui", "co mentário",
+  // "pro fesso r"). Match "Essa questão" and drop everything from there to end
+  // whenever the tail mentions coment(ário) / site / professor / numbers.
   out = out.replace(
-    /\.?\s*Essa\s+quest[ãa]o\s+.{0,40}?coment[áa]?\s*[áa]?rio.*$/gi,
+    /\.?\s*Essa\s+quest[ãa]o\b[\s\S]*?(?:c\s*o\s*m\s*e\s*n\s*t\s*[áa]?\s*r\s*i\s*o|s\s*i\s*t\s*e|p\s*r\s*o\s*f\s*e\s*s\s*s?\s*o\s*r)[\s\S]*$/gi,
     "",
   );
+  // Fallback: if "Essa questão" still trails near end, cut from there.
+  out = out.replace(/\.?\s*Essa\s+quest[ãa]o\b[\s\S]{0,200}$/gi, "");
   return out.replace(/\s{2,}/g, " ").trim();
 }
 
