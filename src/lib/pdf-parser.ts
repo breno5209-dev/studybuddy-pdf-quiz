@@ -216,9 +216,14 @@ export function parseQuestions(extracted: ExtractedPdf): Question[] {
     }
 
     const cleanOpts = opts
-      .map((o) => ({ letter: o.letter, text: o.text.replace(/\s+/g, " ").trim() }))
+      .map((o) => ({
+        letter: o.letter,
+        text: stripInlineNoise(o.text.replace(/\s+/g, " ").trim()),
+      }))
       .filter((o) => o.text.length > 0);
-    const statement = statementLines.join(" ").replace(/\s+/g, " ").trim();
+    let statement = statementLines.join(" ").replace(/\s+/g, " ").trim();
+    statement = stripInlineNoise(statement);
+    statement = trimClassificationHeader(statement);
     const num = qStarts[i].num;
     const correct = answerMap[num];
     if (cleanOpts.length < 2) continue;
