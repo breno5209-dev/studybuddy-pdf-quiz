@@ -30,7 +30,7 @@ function Dashboard() {
   const groups = useStore((s) => s.groups);
   const progress = useStore((s) => s.progress);
   const responses = useStore((s) => s.responses);
-  const { total, correct, accuracy, weakAreas, quizCount } = useStats();
+  const { total, correct, accuracy, weakAreas, quizCount, byGroup } = useStats();
 
   const recentQuizzes = [...quizzes].sort((a, b) => b.createdAt - a.createdAt).slice(0, 4);
   const wrongQuestions = responses.filter((r) => !r.correct).length;
