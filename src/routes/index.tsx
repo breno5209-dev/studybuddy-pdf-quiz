@@ -141,6 +141,54 @@ function Dashboard() {
             )}
           </Card>
 
+          <Card className="lg:col-span-2 p-6">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="font-semibold">Acerto por área</h2>
+              <Link to="/stats" className="text-sm text-primary hover:underline">
+                Ver desempenho
+              </Link>
+            </div>
+            {byGroup.filter((g) => g.total > 0).length === 0 ? (
+              <p className="text-sm text-muted-foreground py-6 text-center">
+                Responda algumas questões para ver sua taxa de acerto por área.
+              </p>
+            ) : (
+              <div className="space-y-3">
+                {byGroup
+                  .filter((g) => g.total > 0)
+                  .sort((a, b) => b.accuracy - a.accuracy)
+                  .map((g) => {
+                    const pct = Math.round(g.accuracy * 100);
+                    return (
+                      <div key={g.group.id} className="flex items-center gap-4">
+                        <div
+                          className="w-3 h-3 rounded-full shrink-0"
+                          style={{ background: g.group.color }}
+                        />
+                        <div className="flex-1 min-w-0">
+                          <div className="flex justify-between text-sm mb-1">
+                            <span className="font-medium truncate">{g.group.name}</span>
+                            <span className="text-muted-foreground tabular-nums shrink-0 ml-2">
+                              {g.correct}/{g.total} · {pct}%
+                            </span>
+                          </div>
+                          <div className="h-1.5 bg-muted rounded-full overflow-hidden">
+                            <div
+                              className="h-full rounded-full transition-all"
+                              style={{
+                                width: `${pct}%`,
+                                background: g.group.color,
+                              }}
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+              </div>
+            )}
+          </Card>
+
           <Card className="p-6">
             <div className="flex items-center gap-2 mb-4">
               <AlertTriangle className="w-4 h-4 text-warning" />
