@@ -125,8 +125,35 @@ export async function extractPdf(file: File): Promise<ExtractedPdf> {
 }
 
 const NOISE_RE =
-  /^(?:\s*\d[\d\s]*|.*medicina livre.*|.*livremedicina.*|.*t\.me\/.*|@\S+)\s*$/i;
+  /^(?:\s*\d[\d\s]*|.*medicina livre.*|.*livremedicina.*|.*venda\s*proibida.*|.*t\.me\/.*|@\S+)\s*$/i;
 const isNoise = (l: string) => !l.trim() || NOISE_RE.test(l);
+
+// Strip inline noise fragments that appear mid-line
+function stripInlineNoise(s: string): string {
+  let out = s;
+  out = out.replace(/medicina\s+livre/gi, " ");
+  out = out.replace(/livremedicina/gi, " ");
+  out = out.replace(/venda\s*proibida/gi, " ");
+  // Footnote on last alternative: "Essa questão possui comentário no site ..."
+  // Handles spaced/garbled variants like "po ssui", "co me ntário", trailing digits.
+  out = out.replace(
+    /\.?\s*Essa\s+quest[ãa]o\s+.{0,40}?coment[áa]?\s*[áa]?rio.*$/gi,
+    "",
+  );
+  return out.replace(/\s{2,}/g, " ").trim();
+}
+
+// Detect where the actual clinical case starts, skipping the topic/classification header.
+const CASE_START_RE =
+  /\b(?:Uma?\s+(?:mulher|homem|paciente|crian[çc]a|lactente|gestante|idos[oa]|adolescente|rec[ée]m[-\s]?nascido)|Mulher\s+de\s+\d|Homem\s+de\s+\d|Paciente\s+(?:de\s+\d|do\s+sexo|com\s+|masculin|feminin)|Crian[çc]a\s+de\s+\d|Lactente\s+de\s+\d|Gestante\s+de\s+\d|Rec[ée]m[-\s]?nascid[oa]|RN\s+de\s+\d|Adolescente\s+de\s+\d|Idos[oa]\s+de\s+\d|Considere\s+(?:o|a|as|os)|Analise\s+(?:o|a|as|os)|Assinale|Em\s+rela[çc][ãa]o\s+a|A\s+respeito\s+(?:de|do|da)|Sobre\s+(?:a|o|as|os)\s+|No\s+que\s+(?:se\s+refere|diz\s+respeito)|Qual\s+(?:das|dos|a|o)|Quanto\s+(?:a|ao|à))/;
+
+function trimClassificationHeader(s: string): string {
+  const m = s.match(CASE_START_RE);
+  if (m && m.index !== undefined && m.index > 0 && m.index < s.length * 0.7) {
+    return s.slice(m.index).trim();
+  }
+  return s;
+}
 
 export function parseQuestions(extracted: ExtractedPdf): Question[] {
   const rawText = extracted.text;
@@ -189,9 +216,14 @@ export function parseQuestions(extracted: ExtractedPdf): Question[] {
     }
 
     const cleanOpts = opts
-      .map((o) => ({ letter: o.letter, text: o.text.replace(/\s+/g, " ").trim() }))
+      .map((o) => ({
+        letter: o.letter,
+        text: stripInlineNoise(o.text.replace(/\s+/g, " ").trim()),
+      }))
       .filter((o) => o.text.length > 0);
-    const statement = statementLines.join(" ").replace(/\s+/g, " ").trim();
+    let statement = statementLines.join(" ").replace(/\s+/g, " ").trim();
+    statement = stripInlineNoise(statement);
+    statement = trimClassificationHeader(statement);
     const num = qStarts[i].num;
     const correct = answerMap[num];
     if (cleanOpts.length < 2) continue;
