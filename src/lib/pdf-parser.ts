@@ -244,7 +244,11 @@ export function parseQuestions(extracted: ExtractedPdf): Question[] {
     statement = stripInlineNoise(statement);
     statement = trimClassificationHeader(statement);
     const num = qStarts[i].num;
-    const correct = answerMap[num];
+    let correct = answerMap[num];
+    if (!correct) {
+      const perQ = chunk.match(PER_Q_ANSWER_RE);
+      if (perQ) correct = perQ[1].toUpperCase();
+    }
     if (cleanOpts.length < 2) continue;
     if (statement.length < 5) continue;
     if (!correct) continue;
