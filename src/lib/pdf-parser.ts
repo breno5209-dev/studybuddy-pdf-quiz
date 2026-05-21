@@ -125,25 +125,30 @@ export async function extractPdf(file: File): Promise<ExtractedPdf> {
 }
 
 const NOISE_RE =
-  /^(?:\s*\d[\d\s]*|.*medicina livre.*|.*livremedicina.*|.*venda\s*proibida.*|.*t\.me\/.*|@\S+)\s*$/i;
+  /^(?:\s*\d[\d\s]*|.*medicina\s*livre.*|.*livre\s*medicina.*|.*venda\s*proibida.*|.*t\.me\/.*|@\S+|.*coment[áa]rio\s+(?:do\s+)?professor.*|.*essa\s+quest[ãa]o\s+possui.*)\s*$/i;
 const isNoise = (l: string) => !l.trim() || NOISE_RE.test(l);
+
+// Some PDFs extract text with a space between every glyph ("c o m e n t á r i o").
+// Collapse those sequences so downstream regexes can match real words.
+function normalizeSpaces(s: string): string {
+  return s.replace(/\b(?:[A-Za-zÀ-ÿ]\s){2,}[A-Za-zÀ-ÿ]\b/g, (m) =>
+    m.replace(/\s+/g, ""),
+  );
+}
 
 // Strip inline noise fragments that appear mid-line
 function stripInlineNoise(s: string): string {
-  let out = s;
-  out = out.replace(/medicina\s+livre/gi, " ");
-  out = out.replace(/livremedicina/gi, " ");
+  let out = normalizeSpaces(s);
+  out = out.replace(/medicina\s*livre/gi, " ");
+  out = out.replace(/livre\s*medicina/gi, " ");
   out = out.replace(/venda\s*proibida/gi, " ");
-  // Footnote on last alternative: "Essa questão possui comentário no site ..."
-  // PDF extraction often inserts spaces inside words ("po ssui", "co mentário",
-  // "pro fesso r"). Match "Essa questão" and drop everything from there to end
-  // whenever the tail mentions coment(ário) / site / professor / numbers.
-  out = out.replace(
-    /\.?\s*Essa\s+quest[ãa]o\b[\s\S]*?(?:c\s*o\s*m\s*e\s*n\s*t\s*[áa]?\s*r\s*i\s*o|s\s*i\s*t\s*e|p\s*r\s*o\s*f\s*e\s*s\s*s?\s*o\s*r)[\s\S]*$/gi,
-    "",
-  );
-  // Fallback: if "Essa questão" still trails near end, cut from there.
-  out = out.replace(/\.?\s*Essa\s+quest[ãa]o\b[\s\S]{0,200}$/gi, "");
+  out = out.replace(/@\s*[a-z0-9_.]+/gi, " ");
+  out = out.replace(/t\.me\/\S+/gi, " ");
+  // Cut everything from the "Essa questão ..." footnote onward
+  out = out.replace(/\.?\s*Essa\s+quest[ãa]o\b[\s\S]*$/gi, "");
+  // Cut everything from "comentário do professor" / "comentário no site"
+  out = out.replace(/\.?\s*coment[áa]rio\s+(?:do\s+professor|no\s+site)[\s\S]*$/gi, "");
+  out = out.replace(/\.?\s*(?:possui|tem)\s+coment[áa]rio[\s\S]*$/gi, "");
   return out.replace(/\s{2,}/g, " ").trim();
 }
 
@@ -156,8 +161,18 @@ function trimClassificationHeader(s: string): string {
   if (m && m.index !== undefined && m.index > 0 && m.index < s.length * 0.7) {
     return s.slice(m.index).trim();
   }
+  // Fallback: drop an obvious topic/area header at the very start, e.g.
+  // "CIRURGIA GERAL - TRAUMA | Uma mulher..." or "Tópico: ... \n Uma mulher..."
+  const labelMatch = s.match(
+    /^\s*(?:T[óo]pico|[ÁA]rea|Assunto|Tema|Categoria|Especialidade|Disciplina)\s*[:\-–|]\s*[^.\n]{0,120}?[.\n|–\-]\s*/i,
+  );
+  if (labelMatch) return s.slice(labelMatch[0].length).trim();
   return s;
 }
+
+// Per-question answer markers used as fallback when the global Gabarito section is absent/incomplete.
+const PER_Q_ANSWER_RE =
+  /(?:Resposta|Gabarito|Alternativa)\s+(?:correta\s*)?[:\-]?\s*([A-Ea-e])\b/i;
 
 export function parseQuestions(extracted: ExtractedPdf): Question[] {
   const rawText = extracted.text;
@@ -229,7 +244,11 @@ export function parseQuestions(extracted: ExtractedPdf): Question[] {
     statement = stripInlineNoise(statement);
     statement = trimClassificationHeader(statement);
     const num = qStarts[i].num;
-    const correct = answerMap[num];
+    let correct = answerMap[num];
+    if (!correct) {
+      const perQ = chunk.match(PER_Q_ANSWER_RE);
+      if (perQ) correct = perQ[1].toUpperCase();
+    }
     if (cleanOpts.length < 2) continue;
     if (statement.length < 5) continue;
     if (!correct) continue;
