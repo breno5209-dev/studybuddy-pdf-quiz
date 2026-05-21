@@ -125,25 +125,30 @@ export async function extractPdf(file: File): Promise<ExtractedPdf> {
 }
 
 const NOISE_RE =
-  /^(?:\s*\d[\d\s]*|.*medicina livre.*|.*livremedicina.*|.*venda\s*proibida.*|.*t\.me\/.*|@\S+)\s*$/i;
+  /^(?:\s*\d[\d\s]*|.*medicina\s*livre.*|.*livre\s*medicina.*|.*venda\s*proibida.*|.*t\.me\/.*|@\S+|.*coment[áa]rio\s+(?:do\s+)?professor.*|.*essa\s+quest[ãa]o\s+possui.*)\s*$/i;
 const isNoise = (l: string) => !l.trim() || NOISE_RE.test(l);
+
+// Some PDFs extract text with a space between every glyph ("c o m e n t á r i o").
+// Collapse those sequences so downstream regexes can match real words.
+function normalizeSpaces(s: string): string {
+  return s.replace(/\b(?:[A-Za-zÀ-ÿ]\s){2,}[A-Za-zÀ-ÿ]\b/g, (m) =>
+    m.replace(/\s+/g, ""),
+  );
+}
 
 // Strip inline noise fragments that appear mid-line
 function stripInlineNoise(s: string): string {
-  let out = s;
-  out = out.replace(/medicina\s+livre/gi, " ");
-  out = out.replace(/livremedicina/gi, " ");
+  let out = normalizeSpaces(s);
+  out = out.replace(/medicina\s*livre/gi, " ");
+  out = out.replace(/livre\s*medicina/gi, " ");
   out = out.replace(/venda\s*proibida/gi, " ");
-  // Footnote on last alternative: "Essa questão possui comentário no site ..."
-  // PDF extraction often inserts spaces inside words ("po ssui", "co mentário",
-  // "pro fesso r"). Match "Essa questão" and drop everything from there to end
-  // whenever the tail mentions coment(ário) / site / professor / numbers.
-  out = out.replace(
-    /\.?\s*Essa\s+quest[ãa]o\b[\s\S]*?(?:c\s*o\s*m\s*e\s*n\s*t\s*[áa]?\s*r\s*i\s*o|s\s*i\s*t\s*e|p\s*r\s*o\s*f\s*e\s*s\s*s?\s*o\s*r)[\s\S]*$/gi,
-    "",
-  );
-  // Fallback: if "Essa questão" still trails near end, cut from there.
-  out = out.replace(/\.?\s*Essa\s+quest[ãa]o\b[\s\S]{0,200}$/gi, "");
+  out = out.replace(/@\s*[a-z0-9_.]+/gi, " ");
+  out = out.replace(/t\.me\/\S+/gi, " ");
+  // Cut everything from the "Essa questão ..." footnote onward
+  out = out.replace(/\.?\s*Essa\s+quest[ãa]o\b[\s\S]*$/gi, "");
+  // Cut everything from "comentário do professor" / "comentário no site"
+  out = out.replace(/\.?\s*coment[áa]rio\s+(?:do\s+professor|no\s+site)[\s\S]*$/gi, "");
+  out = out.replace(/\.?\s*(?:possui|tem)\s+coment[áa]rio[\s\S]*$/gi, "");
   return out.replace(/\s{2,}/g, " ").trim();
 }
 
