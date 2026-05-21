@@ -161,8 +161,18 @@ function trimClassificationHeader(s: string): string {
   if (m && m.index !== undefined && m.index > 0 && m.index < s.length * 0.7) {
     return s.slice(m.index).trim();
   }
+  // Fallback: drop an obvious topic/area header at the very start, e.g.
+  // "CIRURGIA GERAL - TRAUMA | Uma mulher..." or "Tópico: ... \n Uma mulher..."
+  const labelMatch = s.match(
+    /^\s*(?:T[óo]pico|[ÁA]rea|Assunto|Tema|Categoria|Especialidade|Disciplina)\s*[:\-–|]\s*[^.\n]{0,120}?[.\n|–\-]\s*/i,
+  );
+  if (labelMatch) return s.slice(labelMatch[0].length).trim();
   return s;
 }
+
+// Per-question answer markers used as fallback when the global Gabarito section is absent/incomplete.
+const PER_Q_ANSWER_RE =
+  /(?:Resposta|Gabarito|Alternativa)\s+(?:correta\s*)?[:\-]?\s*([A-Ea-e])\b/i;
 
 export function parseQuestions(extracted: ExtractedPdf): Question[] {
   const rawText = extracted.text;
